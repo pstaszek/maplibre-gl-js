@@ -135,7 +135,11 @@ float calculate_visibility(vec4 pos) {
 // grab an elevation value from a raster-dem texture
 float ele(vec2 pos) {
     #ifdef TERRAIN3D
-        vec4 rgb = (texture(u_terrain, pos) * 255.0) * u_terrain_unpack;
+        vec4 texColor = texture(u_terrain, pos);
+        if (all(equal(texColor.rgb, vec3(0.0)))) {
+            return 0.0;
+        }
+        vec4 rgb = (texColor * 255.0) * u_terrain_unpack;
         return rgb.r + rgb.g + rgb.b - u_terrain_unpack.a;
     #else
         return 0.0;
