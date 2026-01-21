@@ -22,6 +22,12 @@ export class RasterDEMTileWorkerSource {
         const imagePixels: RGBAImage | ImageData = isImageBitmap(rawImageData) ?
             new RGBAImage({width, height}, await getImageData(rawImageData, -1, -1, width, height)) :
             rawImageData;
+        
+        if (encoding === 'terrarium' && this.isEmpty(imagePixels)) {
+            // This will cause the tile to enter the 'errored' state.
+            throw new Error('DEM Tile is empty');
+        }
+
         const dem = new DEMData(uid, imagePixels, encoding, redFactor, greenFactor, blueFactor, baseShift);
         this.loaded = this.loaded || {};
         this.loaded[uid] = dem;
@@ -34,5 +40,14 @@ export class RasterDEMTileWorkerSource {
         if (loaded && loaded[uid]) {
             delete loaded[uid];
         }
+    }
+
+    isEmpty(img: RGBAImage | ImageData): boolean {
+        // Check if all pixels are 0
+        const data = img.data;
+        for (let i = 0; i < data.length; i += 4) {
+            if (data[i] !== 0 || data[i + 1] !== 0 || data[i + 2] !== 0) return false;
+        }
+        return true;
     }
 }
