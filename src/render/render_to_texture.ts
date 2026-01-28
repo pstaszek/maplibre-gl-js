@@ -22,6 +22,12 @@ const LAYERS_TO_TEXTURES: { [keyof in StyleLayer['type']]?: boolean } = {
     'color-relief': true
 };
 
+type RttFingerprint = {
+    [sourceId: string]: {
+        [rttTileKey: string]: string;
+    };
+};
+
 /**
  * @internal
  * A helper class to help define what should be rendered to texture and how
@@ -40,7 +46,7 @@ export class RenderToTexture {
      * for a given render-to-texture tile. Used to detect changes and trigger re-rendering.
      * Format: "sorted_tile_keys#revision"
      */
-    _rttFingerprints: {[sourceId: string]: {[rttTileKey: string]: string}};
+    _rttFingerprints: RttFingerprint;
     /**
      * store for render-stacks
      * a render stack is a set of layers which should be rendered into one texture
@@ -101,29 +107,8 @@ export class RenderToTexture {
             
         }
 
-        this._rttFingerprints = {};
-        for (const id of style._order) {
-            const layer = style._layers[id];
-            const source = layer.source;
-            const shouldRenderToTexture = LAYERS_TO_TEXTURES[layer.type];
-
-            if (shouldRenderToTexture && !this._rttFingerprints[source]) {
-                this._rttFingerprints[source] = {};
-                const revision = style.tileManagers[source]?.getState().revision ?? 0;
-                for (const key in this._coordsAscending[source])
-                    this._rttFingerprints[source][key] = `${this._coordsAscending[source][key].map(c => c.key).sort().join()}#${revision}`;
-            }
-        }
-
-        // check tiles to render
-        for (const tile of this._renderableTiles) {
-            for (const source in this._rttFingerprints) {
-                // rerender if there are different coords to render than in the last rendering
-                // or if the source revision has changed
-                const fingerprint = this._rttFingerprints[source][tile.tileID.key];
-                if (fingerprint && fingerprint !== tile.rttFingerprint[source]) tile.rtt = [];
-            }
-        }
+        this._rttFingerprints = this._getRttFingerprints(style);
+        this._clearRttTilesCache(this._rttFingerprints);
     }
 
     /**
@@ -204,4 +189,43 @@ export class RenderToTexture {
         return false;
     }
 
+    /**
+     * Generate a list of all tiles which should be rendered to texture
+     * and calculate a fingerprint for each tile. Fingerprint consists of
+     * the sorted tile keys and the revision of the source.
+     */
+    _getRttFingerprints(style: Style) {
+        const rttFingerprints = {};
+        const sources = this._getRenderToTextureSources(style);
+        for (const source of sources) {
+            rttFingerprints[source] = {};
+            const revision = style.tileManagers[source]?.getState().revision ?? 0;
+            for (const key in this._coordsAscending[source])
+                rttFingerprints[source][key] = this._getFingerprint(source, key, revision);
+        }
+        return rttFingerprints;
+    }
+
+    _getRenderToTextureSources(style: Style) {
+        const sources = new Set<string>();
+        for (const id of style._order) {
+            const layer = style._layers[id];
+            const source = layer.source;
+            if (LAYERS_TO_TEXTURES[layer.type]) sources.add(source);
+        }
+        return Array.from(sources);
+    }
+
+    _clearRttTilesCache(rttFingerprints: RttFingerprint) {
+        for (const tile of this._renderableTiles) {
+            for (const source in rttFingerprints) {
+                const newFingerprint = rttFingerprints[source][tile.tileID.key];
+                if (newFingerprint && newFingerprint !== tile.rttFingerprint[source]) tile.rtt = [];
+            }
+        }
+    }
+
+    _getFingerprint(source: string, tileKey: string, revision: number) {
+        return `${this._coordsAscending[source][tileKey].map(c => c.key).sort().join()}#${revision}`;
+    }
 }
